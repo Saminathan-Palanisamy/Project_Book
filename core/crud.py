@@ -122,3 +122,20 @@ def delete_user(db: Session, user_id: int):
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+"""
+#------login verification-----------------
+def authenticate_user(db: Session, username: str, password: str):
+    user = db.query(models.User).filter(models.User.username == username,
+                                        models.User.password == password).first()
+    return user  # returns None if invalid
+"""
+def authenticate_user(db: Session, username: str, password: str):
+    """
+    Checks if a user exists with the given username and password.
+    Returns the User object if valid, else None.
+    """
+    user = db.query(models.User).filter(
+        models.User.username == username,
+        models.User.password == password
+    ).first()
+    return user

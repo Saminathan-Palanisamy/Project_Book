@@ -1,6 +1,8 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from core.database import Base
+from datetime import datetime
+from sqlalchemy import DateTime
 
 class Author(Base):
     __tablename__ = "authors"
@@ -25,3 +27,16 @@ class User(Base):
     username = Column(String(255), unique=True,index= True, nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     password = Column(String(255), nullable=False)  # Store hashed passwords
+
+#---------------- Purchase ----------------
+class Purchase(Base):
+    __tablename__ = "purchases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    book_id = Column(Integer, ForeignKey("books.id"))
+    quantity = Column(Integer, nullable=False)
+    purchase_date = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+    book = relationship("Book")

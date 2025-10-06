@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
+from datetime import datetime
+
 
 # ---------------- Authors ----------------
 class AuthorBase(BaseModel):
@@ -56,3 +58,19 @@ class UserOut(UserBase):
 class UserLogin(BaseModel):
     username: str
     password: str
+
+# ---------------- Purchases ----------------
+class PurchaseBase(BaseModel):
+    user_id: int
+    book_id: int
+    quantity: int
+
+class PurchaseError(Exception):
+    pass
+class PurchaseCreate(PurchaseBase):
+    pass
+class PurchaseResponse(PurchaseBase):
+    id: int
+    purchase_date: datetime
+    class Config:
+        orm_mode = True

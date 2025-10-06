@@ -2,7 +2,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from core import models, schemas
 from fastapi import HTTPException
-
+from sqlalchemy.exc import SQLAlchemyError
+from core.schemas import PurchaseError  # Import your custom exception
+from fastapi import status
 # ---------------- Authors ----------------
 def create_author(db: Session, author: schemas.AuthorCreate):
     try:
@@ -139,3 +141,48 @@ def authenticate_user(db: Session, username: str, password: str):
         models.User.password == password
     ).first()
     return user
+
+
+# ---------------- Purchases ----------------
+def create_purchase(db, purchase: schemas.PurchaseCreate):
+    try:
+        # ✅ Check if user exists
+        user = db.query(models.User).filter(models.User.id == purchase.user_id).first()
+        if not user:
+            raise PurchaseError(f"User with id {purchase.user_id} not found.")
+
+        # ✅ Check if book exists
+        book = db.query(models.Book).filter(models.Book.id == purchase.book_id).first()
+        if not book:
+            raise PurchaseError(f"Book with id {purchase.book_id} not found.")
+        # ✅ Create purchase record
+        db_purchase = models.Purchase(
+            user_id=purchase.user_id,
+            book_id=purchase.book_id,
+            quantity=purchase.quantity
+        )
+        db.add(db_purchase)
+        db.commit()
+        db.refresh(db_purchase)
+        return db_purchase
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise PurchaseError(str(e))  # Raise your custom exception
+
+    except HTTPException:
+        # re-raise FastAPI HTTP errors (don't swallow them)
+        raise
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}"
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error: {str(e)}"
+        )

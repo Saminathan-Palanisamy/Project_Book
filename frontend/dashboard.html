@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sajith Books | Admin Dashboard</title>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+    <div class="dashboard-header">
+        <h1>Sajith Books</h1>
+    </div>
+    <div class="dashboard-main">
+        <aside class="dashboard-sidebar">
+            <ul>
+                <li><a href="#" onclick="showSection('users')">Manage Users</a></li>
+                <li><a href="#" onclick="showSection('authors')">Manage Authors</a></li>
+                <li><a href="#" onclick="showSection('books')">Manage Books</a></li>
+                <li><a href="#" onclick="showSection('purchases')">Manage Purchases</a></li>
+            </ul>
+        </aside>
+        <section class="dashboard-content">
+            <div id="users" class="dashboard-section" style="display:none;">
+                <h2>Manage Users</h2>
+                <h2>Manage Users</h2>
+<form id="addUserForm">
+    <input type="text" id="newUsername" placeholder="Username" required>
+    <input type="email" id="newEmail" placeholder="Email" required>
+    <input type="password" id="newPassword" placeholder="Password" required>
+    <button type="submit">Add User</button>
+</form>
+<div id="userMessage"></div>
+<table id="usersTable">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Username</th>
+            <th>Email</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        <!-- User rows will be inserted here -->
+    </tbody>
+</table>
+                <p>User management tools will appear here.</p>
+            </div>
+            <div id="authors" class="dashboard-section" style="display:none;">
+                <h2>Manage Authors</h2>
+                <p>Author management tools will appear here.</p>
+            </div>
+            <div id="books" class="dashboard-section" style="display:none;">
+                <h2>Manage Books</h2>
+                <p>Book management tools will appear here.</p>
+            </div>
+            <div id="purchases" class="dashboard-section" style="display:none;">
+                <h2>Manage Purchases</h2>
+                <p>Purchase management tools will appear here.</p>
+            </div>
+            <div id="welcome" class="dashboard-section">
+                <h2>Welcome, Admin!</h2>
+                <p>Select a tool from the left to manage entities in Sajith Books.</p>
+            </div>
+        </section>
+    </div>
+    <script>
+        function showSection(section) {
+            document.querySelectorAll('.dashboard-section').forEach(div => div.style.display = 'none');
+            document.getElementById(section).style.display = 'block';
+        }
+    </script>
+</body>
+</html>

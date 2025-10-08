@@ -16,8 +16,9 @@ class AuthorUpdate(AuthorBase):
 
 class AuthorOut(AuthorBase):
     id: int
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 # ---------------- Books ----------------
 class BookBase(BaseModel):
@@ -33,16 +34,21 @@ class BookUpdate(BookBase):
 
 class BookOut(BookBase):
     id: int
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 # ---------------- Users ----------------
 class UserBase(BaseModel):
     username: str
     email: EmailStr
+    
 
-class UserCreate(UserBase):
+class UserCreate(BaseModel):
+    username: str
+    email: EmailStr 
     password: str
+
 
 class UserUpdate(BaseModel):
     username: Optional[str] = None
@@ -51,6 +57,8 @@ class UserUpdate(BaseModel):
 
 class UserOut(UserBase):
     id: int
+    username: str
+    email: EmailStr
     class Config:
         orm_mode = True
 
@@ -72,5 +80,14 @@ class PurchaseCreate(PurchaseBase):
 class PurchaseResponse(PurchaseBase):
     id: int
     purchase_date: datetime
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
+
+#---------------- Auth[JWT] ----------------
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    username: Optional[str] = None

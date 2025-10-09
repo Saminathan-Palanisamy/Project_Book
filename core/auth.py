@@ -3,14 +3,12 @@ from jose import jwt, JWTError
 from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
 from sqlalchemy.orm import Session
+import os
 
 from core import models
 from core.schemas import TokenData
 from core.database import get_db, oauth2_scheme
-from passlib.context import CryptContext
 
-# Load secrets from environment in real deployments
-import os
 SECRET_KEY = os.getenv("SECRET_KEY", "replace_with_env_key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
@@ -19,15 +17,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ---------------- Password helpers ----------------
 def get_password_hash(password: str) -> str:
-    truncated = password.encode('utf-8')[:72]  # truncate to 72 bytes for bcrypt
+    truncated = password.encode('utf-8')[:72]
     return pwd_context.hash(truncated)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     truncated = plain_password.encode('utf-8')[:72]
     return pwd_context.verify(truncated, hashed_password)
-
-
-
 
 # ---------------- User helpers ----------------
 def get_user(db: Session, username: str):

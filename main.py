@@ -25,3 +25,8 @@ app.include_router(purchases.router, prefix="/purchases", tags=["Purchases"])
 @app.get("/")
 def root():
     return {"message": "Book Management API - Welcome to the book world of Sajith!"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

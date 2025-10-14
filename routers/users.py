@@ -194,7 +194,16 @@ def reject_vendor(
         db.rollback()
         raise HTTPException(status_code=500, detail="Vendor rejection failed: " + str(e))
 
-
+    #------let's add the current user details endpoint-----
+@router.get("/me", response_model=schemas.UserOut)
+def read_users_me(current_user: models.User = Depends(get_current_user)):
+    """
+    Get details of the currently logged-in user.
+    Token is required (Bearer token from login).
+    """
+    
+    return current_user
+#------------------------------------------------------
 # ---------------- Read User ----------------
 @router.get("/{user_id}", response_model=schemas.UserOut)
 def read_user(user_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -258,3 +267,5 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: model
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(status_code=500, detail="Delete failed: " + str(e))
+    
+

@@ -3,22 +3,29 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import timedelta
-
+import os
 from core import models, schemas, database
+
 from core.auth import (
     get_current_user,
     get_password_hash,
     authenticate_user,
     create_access_token,
-    ACCESS_TOKEN_EXPIRE_MINUTES
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    require_admin,
+    require_owner_or_admin
 )
+
 
 router = APIRouter()
 get_db = database.get_db
 
 # ---------------- Register ----------------
-@router.post("/register", response_model=schemas.UserOut)
+@router.post("/register", response_model=schemas.UserOut, status_code=201)
 def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    """
+    Register a normal user. role cannot be supplied by request (always USER).
+    """
     try:
         if db.query(models.User).filter(models.User.email == user.email).first():
             raise HTTPException(status_code=400, detail="Email already registered")
@@ -30,7 +37,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
             username=user.username,
             email=user.email,
             password=hashed_password,
-            role=user.role or models.UserRole.USER
+            role=models.UserRole.USER  # enforce USER role
         )
         db.add(db_user)
         db.commit()
@@ -61,6 +68,51 @@ def register_vendor(
     db.refresh(db_vendor)
     return db_vendor
 
+# ---------------- Create Admin (one-time, protected) ----------------
+@router.post("/create_admin", response_model=schemas.UserOut, status_code=201)
+def create_admin(
+    user: schemas.UserCreate,
+    admin_key: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Create the ADMIN user. This endpoint should be protected by a secret key (ADMIN_CREATE_KEY)
+    passed as admin_key param. It allows creating admin only if no admin exists.
+    """
+    ADMIN_CREATE_KEY = os.getenv("ADMIN_CREATE_KEY", None)
+    if ADMIN_CREATE_KEY is None:
+        raise HTTPException(status_code=500, detail="ADMIN_CREATE_KEY is not configured on server")
+
+    if admin_key != ADMIN_CREATE_KEY:
+        raise HTTPException(status_code=403, detail="Invalid admin creation key")
+
+    # check if admin already exists
+    existing_admin = db.query(models.User).filter(models.User.role == models.UserRole.ADMIN).first()
+    if existing_admin:
+        raise HTTPException(status_code=400, detail="Admin user already exists")
+
+    try:
+        if db.query(models.User).filter(models.User.email == user.email).first():
+            raise HTTPException(status_code=400, detail="Email already registered")
+        if db.query(models.User).filter(models.User.username == user.username).first():
+            raise HTTPException(status_code=400, detail="Username already taken")
+
+        hashed_password = get_password_hash(user.password)
+        db_user = models.User(
+            username=user.username,
+            email=user.email,
+            password=hashed_password,
+            role=models.UserRole.ADMIN
+        )
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        return db_user
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Admin creation failed: " + str(e))
+
+
 # ---------------- Login ----------------
 @router.post("/login", response_model=schemas.Token)
 def login_for_access_token(
@@ -76,38 +128,167 @@ def login_for_access_token(
         )
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username, "role": user.role.value},
+        data={"sub": user.username, "user_id": user.id, "role": user.role.value},
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-# ---------------- CRUD ----------------
+
+# ---------------- Register as Vendor ----------------
+@router.post("/register_vendor", response_model=schemas.VendorOut, status_code=201)
+def register_vendor(
+    vendor: schemas.VendorCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    The logged-in normal user can request vendor registration.
+    This creates a vendor_profile with verified='pending' and changes user's role to VENDOR.
+    The actual acceptance must be performed by ADMIN via approve endpoint.
+    """
+    # Only normal users can request vendor (not already vendor/admin)
+    if current_user.role != models.UserRole.USER:
+        raise HTTPException(status_code=400, detail="Only normal users can request vendor registration")
+
+    # check existing vendor_profile
+    if current_user.vendor_profile:
+        raise HTTPException(status_code=400, detail="Vendor registration already requested or exists")
+
+    try:
+        db_vendor = models.VendorProfile(
+            user_id=current_user.id,
+            business_name=vendor.business_name,
+            verified="pending"
+        )
+        db.add(db_vendor)
+        # keep the user role as USER until admin approves;
+        db.commit()
+        db.refresh(db_vendor)
+        return db_vendor
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Vendor registration failed: " + str(e))
+
+
+# ---------------- Admin approves vendor ----------------
+@router.post("/approve_vendor/{vendor_profile_id}", response_model=schemas.VendorOut)
+def approve_vendor(
+    vendor_profile_id: int,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(require_admin)
+):
+    """
+    Only ADMIN can approve or reject vendor.
+    Approving sets VendorProfile.verified = 'approved' and promotes user.role -> VENDOR.
+    """
+    vp = db.query(models.VendorProfile).filter(models.VendorProfile.id == vendor_profile_id).first()
+    if not vp:
+        raise HTTPException(status_code=404, detail="Vendor profile not found")
+
+    if vp.verified == "approved":
+        raise HTTPException(status_code=400, detail="Vendor is already approved")
+
+    try:
+        vp.verified = "approved"
+        # promote user to vendor
+        user = db.query(models.User).filter(models.User.id == vp.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Associated user not found")
+        user.role = models.UserRole.VENDOR
+        db.commit()
+        db.refresh(vp)
+        return vp
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Vendor approval failed: " + str(e))
+
+
+# ---------------- Admin rejects vendor ----------------
+@router.post("/reject_vendor/{vendor_profile_id}", response_model=schemas.VendorOut)
+def reject_vendor(
+    vendor_profile_id: int,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(require_admin)
+):
+    vp = db.query(models.VendorProfile).filter(models.VendorProfile.id == vendor_profile_id).first()
+    if not vp:
+        raise HTTPException(status_code=404, detail="Vendor profile not found")
+
+    if vp.verified == "rejected":
+        raise HTTPException(status_code=400, detail="Vendor is already rejected")
+
+    try:
+        vp.verified = "rejected"
+        # keep user as USER (no role change) or revert if previously changed
+        user = db.query(models.User).filter(models.User.id == vp.user_id).first()
+        db.commit()
+        db.refresh(vp)
+        return vp
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Vendor rejection failed: " + str(e))
+
+
+# ---------------- Read User ----------------
 @router.get("/{user_id}", response_model=schemas.UserOut)
-def read_user(user_id: int, db: Session = Depends(get_db)):
+def read_user(user_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    # read permission: everyone can view details, but consider redacting sensitive fields in future
     return user
 
+# ---------------- Update User ----------------
 @router.put("/{user_id}", response_model=schemas.UserOut)
-def update_user(user_id: int, user: schemas.UserUpdate, db: Session = Depends(get_db)):
+def update_user(user_id: int, user: schemas.UserUpdate, db: Session = Depends(get_db),
+                current_user: models.User = Depends(get_current_user)):
+    """
+    Only admin or the owner can update user details. One user cannot update another user.
+    role cannot be changed via this endpoint.
+    """
+    # check owner or admin
+    if current_user.role != models.UserRole.ADMIN and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this user")
+
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
+
     update_data = user.dict(exclude_unset=True)
+    # disallow role changes here
+    if "role" in update_data:
+        update_data.pop("role", None)
+
     if "password" in update_data:
         update_data["password"] = get_password_hash(update_data["password"])
-    for key, value in update_data.items():
-        setattr(db_user, key, value)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
 
+    try:
+        for key, value in update_data.items():
+            setattr(db_user, key, value)
+        db.commit()
+        db.refresh(db_user)
+        return db_user
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Update failed: " + str(e))
+
+# ---------------- Delete User ----------------
 @router.delete("/{user_id}")
-def delete_user(user_id: int, db: Session = Depends(get_db)):
+def delete_user(user_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """
+    Only admin OR the owner can delete a user. Users cannot delete other users.
+    """
+    if current_user.role != models.UserRole.ADMIN and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this user")
+
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
-    db.delete(db_user)
-    db.commit()
-    return {"detail": "User deleted successfully"}
+
+    try:
+        db.delete(db_user)
+        db.commit()
+        return {"detail": "User deleted successfully"}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Delete failed: " + str(e))

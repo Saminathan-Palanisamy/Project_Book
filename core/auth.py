@@ -12,6 +12,7 @@ from core.database import get_db, oauth2_scheme
 SECRET_KEY = os.getenv("SECRET_KEY", "replace_with_env_key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+ADMIN_CREATE_KEY = os.getenv("ADMIN_CREATE_KEY", None)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -28,9 +29,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_user(db: Session, username: str):
     return db.query(models.User).filter(models.User.username == username).first()
 
+def get_user_by_id(db: Session, user_id: int):
+    return db.query(models.User).filter(models.User.id == user_id).first()
+
 def authenticate_user(db: Session, username: str, password: str):
     user = get_user(db, username)
-    if not user or not verify_password(password, user.password):
+    if not user:
+        return None
+    if not verify_password(password, user.password):
         return None
     return user
 
@@ -41,11 +47,10 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def decode_access_token(token: str) -> str | None:
+def decode_access_token(token: str) -> dict | None:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        return username
+        return payload
     except JWTError:
         return None
 
@@ -56,6 +61,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    payload = None
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str | None = payload.get("sub")
@@ -69,3 +75,16 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise credentials_exception
     return user
+# Helper to check if user is admin
+def require_admin(current_user: models.User = Depends(get_current_user)):
+    if current_user.role != models.UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
+    return current_user
+
+# Helper to check if action is allowed for owner or admin
+def require_owner_or_admin(target_user_id: int, current_user: models.User = Depends(get_current_user)):
+    if current_user.role == models.UserRole.ADMIN:
+        return current_user
+    if current_user.id != target_user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access/modify this user")
+    return current_user

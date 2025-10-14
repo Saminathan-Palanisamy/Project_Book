@@ -8,7 +8,7 @@ from core.database import Base, engine
 # Create tables automatically (optional)
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Sajith Books API")
+app = FastAPI(title="Sajith Books API - Role Based Access Control")
 
 
 # Include routers
@@ -24,4 +24,4 @@ app.include_router(purchases.router, prefix="/purchases", tags=["Purchases"])
 # Root endpoint
 @app.get("/")
 def root():
-    return {"message": "Book Management API"}
+    return {"message": "Book Management API - Welcome to the book world of Sajith!"}

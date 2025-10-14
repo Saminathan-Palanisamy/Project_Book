@@ -22,5 +22,5 @@ def get_db():
     finally:
         db.close()
 
-# OAuth2 scheme for token extraction
+# OAuth2 scheme for token extraction (used by get_current_user)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/login")

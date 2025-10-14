@@ -2,6 +2,13 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
 from core.models import UserRole
+import enum
+
+# Re-declare small enum type for Pydantic use (string)
+class UserRoleStr(str, enum.Enum):
+    admin = "admin"
+    user = "user"
+    vendor = "vendor"
 
 # ---------------- Authors ----------------
 class AuthorBase(BaseModel):
@@ -32,7 +39,7 @@ class BookOut(BookBase):
 class UserBase(BaseModel):
     username: str
     email: EmailStr
-    role: Optional[UserRole] = UserRole.USER
+    #role: Optional[UserRole] = UserRole.USER
 
 class UserCreate(UserBase):
     password: str
@@ -41,12 +48,12 @@ class UserUpdate(BaseModel):
     username: Optional[str] = None
     email: Optional[EmailStr] = None
     password: Optional[str] = None
-    role: Optional[UserRole] = None
+   # role: Optional[UserRole] = None
 
 class UserOut(UserBase):
     id: int
-    class Config:
-        orm_mode = True
+    role: Optional[UserRoleStr] = UserRoleStr.user
+    model_config = {"from_attributes": True}
 
 class UserLogin(BaseModel):
     username: str

@@ -134,40 +134,6 @@ def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-# ---------------- Register as Vendor ----------------
-@router.post("/register_vendor", response_model=schemas.VendorOut, status_code=201)
-def register_vendor(
-    vendor: schemas.VendorCreate,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-):
-    """
-    The logged-in normal user can request vendor registration.
-    This creates a vendor_profile with verified='pending' and changes user's role to VENDOR.
-    The actual acceptance must be performed by ADMIN via approve endpoint.
-    """
-    # Only normal users can request vendor (not already vendor/admin)
-    if current_user.role != models.UserRole.USER:
-        raise HTTPException(status_code=400, detail="Only normal users can request vendor registration")
-
-    # check existing vendor_profile
-    if current_user.vendor_profile:
-        raise HTTPException(status_code=400, detail="Vendor registration already requested or exists")
-
-    try:
-        db_vendor = models.VendorProfile(
-            user_id=current_user.id,
-            business_name=vendor.business_name,
-            verified="pending"
-        )
-        db.add(db_vendor)
-        # keep the user role as USER until admin approves;
-        db.commit()
-        db.refresh(db_vendor)
-        return db_vendor
-    except SQLAlchemyError as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail="Vendor registration failed: " + str(e))
 
 
 # ---------------- Admin approves vendor ----------------

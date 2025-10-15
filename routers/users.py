@@ -51,22 +51,42 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
 @router.post("/register_vendor", response_model=schemas.VendorOut)
 def register_vendor(
     vendor: schemas.VendorCreate,
+    force_reapply: bool = False,  # <- frontend should send True if reapplying
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     if current_user.role != models.UserRole.USER:
         raise HTTPException(status_code=400, detail="Only normal users can become vendors")
 
-    db_vendor = models.VendorProfile(
-        user_id=current_user.id,
-        business_name=vendor.business_name,
-        verified="pending"
-    )
-    db.add(db_vendor)
-    current_user.role = models.UserRole.VENDOR
-    db.commit()
-    db.refresh(db_vendor)
-    return db_vendor
+
+    # Check if vendor profile exists
+    db_vendor = db.query(models.VendorProfile).filter_by(user_id=current_user.id).first()
+
+
+    if db_vendor:
+        if db_vendor.verified == "approved":
+            raise HTTPException(status_code=400, detail="You are already an approved vendor.")
+        elif db_vendor.verified == "pending" and not force_reapply:
+            raise HTTPException(status_code=400, detail="Vendor request already pending.")
+        elif db_vendor.verified == "rejected" or force_reapply:
+            # Reapply: reset status to pending
+            db_vendor.business_name = vendor.business_name
+            db_vendor.verified = "pending"
+            db.commit()
+            db.refresh(db_vendor)
+            return db_vendor
+    else:
+        # Create new vendor profile
+        new_vendor = models.VendorProfile(
+            user_id=current_user.id,
+            business_name=vendor.business_name,
+            verified="pending"
+        )
+        db.add(new_vendor)
+        current_user.role = models.UserRole.USER  # keep as USER until admin approval
+        db.commit()
+        db.refresh(new_vendor)
+        return new_vendor
 
 # ---------------- Create Admin (one-time, protected) ----------------
 @router.post("/create_admin", response_model=schemas.UserOut, status_code=201)
@@ -311,6 +331,5 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: model
         db.rollback()
         raise HTTPException(status_code=500, detail="Delete failed: " + str(e))
     
-
 
 

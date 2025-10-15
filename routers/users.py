@@ -136,6 +136,57 @@ def login_for_access_token(
 
 
 
+
+
+    #------let's add the current user details endpoint-----
+@router.get("/me", response_model=schemas.UserOut)
+def read_users_me(current_user: models.User = Depends(get_current_user)):
+    """
+    Get details of the currently logged-in user.
+    Token is required (Bearer token from login).
+    """
+
+    return current_user
+#------------------------------------------------------
+# ---------------- List all users (admin only) ----------------
+@router.get("/all")
+def get_all_users(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    try:
+        if current_user.role != models.UserRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Permission denied")
+
+        users = db.query(models.User).all()
+
+        user_list = []
+        for u in users:
+            print("DEBUG User ->", u.id, u.username, u.role)  # 🧩 See what `u.role` actually is
+            user_list.append({
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "role": getattr(u.role, "value", u.role)
+            })
+
+        return user_list
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()  # 🧩 This prints the full error trace
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {e}")
+    
+
+# ---------------- Read User ----------------
+@router.get("/{user_id}", response_model=schemas.UserOut)
+def read_user(user_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    # read permission: everyone can view details, but consider redacting sensitive fields in future
+    return user
+
 # ---------------- Admin approves vendor ----------------
 @router.post("/approve_vendor/{vendor_profile_id}", response_model=schemas.VendorOut)
 def approve_vendor(
@@ -193,25 +244,17 @@ def reject_vendor(
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(status_code=500, detail="Vendor rejection failed: " + str(e))
-
-    #------let's add the current user details endpoint-----
-@router.get("/me", response_model=schemas.UserOut)
-def read_users_me(current_user: models.User = Depends(get_current_user)):
+# ---------------- Get Vendor Profile by User ID ----------------
+@router.get("/vendor_profile/{user_id}", response_model=schemas.VendorOut)
+def get_vendor_profile(user_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     """
-    Get details of the currently logged-in user.
-    Token is required (Bearer token from login).
+    Get the VendorProfile for a given user_id.
+    Any logged-in user can view this, admin will use it for approvals.
     """
-    
-    return current_user
-#------------------------------------------------------
-# ---------------- Read User ----------------
-@router.get("/{user_id}", response_model=schemas.UserOut)
-def read_user(user_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    # read permission: everyone can view details, but consider redacting sensitive fields in future
-    return user
+    vp = db.query(models.VendorProfile).filter(models.VendorProfile.user_id == user_id).first()
+    if not vp:
+        raise HTTPException(status_code=404, detail="Vendor profile not found")
+    return vp
 
 # ---------------- Update User ----------------
 @router.put("/{user_id}", response_model=schemas.UserOut)
@@ -268,4 +311,6 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: model
         db.rollback()
         raise HTTPException(status_code=500, detail="Delete failed: " + str(e))
     
+
+
 

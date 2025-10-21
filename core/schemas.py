@@ -31,9 +31,15 @@ class BookBase(BaseModel):
 class BookCreate(BookBase): pass
 class BookUpdate(BookBase): pass
 
-class BookOut(BookBase):
+class BookOut(BaseModel):
     id: int
-    model_config = {"from_attributes": True}
+    title: str
+    description: Optional[str]
+    price: Optional[float]
+    author_id: int
+
+    class Config:
+        orm_mode = True
 
 # ---------------- Users ----------------
 class UserBase(BaseModel):
@@ -61,7 +67,7 @@ class UserLogin(BaseModel):
 
 # ---------------- Purchases ----------------
 class PurchaseBase(BaseModel):
-    user_id: int
+    
     book_id: int
     quantity: int
 
@@ -69,6 +75,7 @@ class PurchaseCreate(PurchaseBase): pass
 
 class PurchaseResponse(PurchaseBase):
     id: int
+    user_id: int
     purchase_date: datetime
     model_config = {"from_attributes": True}
 
@@ -90,3 +97,15 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: Optional[str] = None
+
+# ---------------- Purchase Output ----------------
+
+class PurchaseOut(BaseModel):
+    id: int
+    book_id: int
+    user_id: int
+    quantity: int
+    total_amount: Optional[float] = 0
+
+    class Config:
+        orm_mode = True

@@ -19,7 +19,6 @@ def login_user(username, password):
         st.error(f"Login failed: {resp_json.get('detail', response.text)}")
         return None
 
-
 def register_user(username, email, password):
     url = f"{API_BASE_URL}/users/register"
     response = requests.post(url, json={"username": username, "email": email, "password": password})
@@ -27,9 +26,8 @@ def register_user(username, email, password):
         st.success("Registration successful! You can now login.")
         return True
     else:
-        st.error(f"Registration failed: {response.json()['detail']}")
+        st.error(f"Registration failed: {response.json().get('detail', response.text)}")
         return False
-
 
 def get_current_user(token):
     headers = {"Authorization": f"Bearer {token}"}
@@ -40,13 +38,11 @@ def get_current_user(token):
         st.error("Could not fetch user details. Token may be invalid or expired.")
         return None
 
-
 def logout():
     keys = list(st.session_state.keys())
     for key in keys:
         del st.session_state[key]
     st.session_state["logged_out"] = True
-
 
 def get_all_users(token):
     headers = {"Authorization": f"Bearer {token}"}
@@ -57,20 +53,97 @@ def get_all_users(token):
         st.error("Could not fetch users. Permission denied or token expired.")
         return []
 
-
 def approve_vendor(token, vendor_id):
     headers = {"Authorization": f"Bearer {token}"}
     response = requests.post(f"{API_BASE_URL}/users/approve_vendor/{vendor_id}", headers=headers)
     return response.status_code == 200
-
 
 def reject_vendor(token, vendor_id):
     headers = {"Authorization": f"Bearer {token}"}
     response = requests.post(f"{API_BASE_URL}/users/reject_vendor/{vendor_id}", headers=headers)
     return response.status_code == 200
 
+#----------------- Vendor Dashboard -----------------
+def vendor_dashboard_page(token: str):
+    headers = {"Authorization": f"Bearer {token}"}
+    st.title("📦 Vendor Dashboard")
 
-# --- Streamlit Layout ---
+    # --- Fetch Dashboard Data ---
+    try:
+        res = requests.get(f"{API_BASE_URL}/vendors/dashboard", headers=headers)
+        if res.status_code == 200:
+            data = res.json()
+            st.subheader(f"Welcome, {data['username']} ({data['business_name']})")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Books", data["books_count"])
+            col2.metric("Authors", data["authors_count"])
+            col3.metric("Books Sold", data["purchases_count"])
+        else:
+            st.error(f"Failed to load dashboard: {res.text}")
+    except Exception as e:
+        st.error(f"Error fetching dashboard data: {e}")
+
+    st.divider()
+
+    # --- Vendor Books & Sales Info ---
+    st.header("📚 Your Books")
+    try:
+        res_books = requests.get(f"{API_BASE_URL}/vendors/books", headers=headers)
+        res_sales = requests.get(f"{API_BASE_URL}/vendors/sales", headers=headers)
+        if res_books.status_code == 200:
+            books = res_books.json()
+            sales = res_sales.json() if res_sales.status_code == 200 else []
+
+            if books:
+                for b in books:
+                    with st.expander(f"{b['title']} (Author ID: {b['author_id']})"):
+                        st.caption(b.get("description", "No description"))
+                        book_sales = [s for s in sales if s['book_id'] == b['id']]
+                        total_qty = sum(s['quantity'] for s in book_sales)
+                        total_amount = sum(s['quantity'] * b.get('price', 0) for s in book_sales)
+                        st.info(f"Sold: {total_qty} | Revenue: ₹{total_amount}")
+            else:
+                st.info("No books found.")
+        else:
+            st.warning("Could not load books.")
+    except Exception as e:
+        st.error(f"Error fetching books and sales: {e}")
+
+    # --- Purchases ---
+    st.header("💰 Your Purchases")
+    try:
+        res_purchases = requests.get(f"{API_BASE_URL}/users/purchases/me", headers=headers)
+        if res_purchases.status_code == 200:
+            purchases = res_purchases.json()
+            if purchases:
+                for p in purchases:
+                    st.write(f"**Purchase ID:** {p['id']} | Book ID: {p['book_id']} | Vendor ID: {p['book']['author_id']}")
+                    st.caption(f"Quantity: {p['quantity']} | Total: ₹{p['quantity'] * p['book'].get('price', 0)}")
+            else:
+                st.info("No purchases yet.")
+        else:
+            st.warning("Could not load your purchases.")
+    except Exception as e:
+        st.error(f"Error fetching purchases: {e}")
+
+    # --- Sales ---
+    st.header("💵 Your Sales")
+    try:
+        res_sales = requests.get(f"{API_BASE_URL}/vendors/sales", headers=headers)
+        if res_sales.status_code == 200:
+            sales = res_sales.json()
+            if sales:
+                for s in sales:
+                    st.write(f"**Sale ID:** {s['id']} | Book ID: {s['book_id']} | Buyer: {s['user_id']}")
+                    st.caption(f"Quantity: {s['quantity']} | Total: ₹{s['quantity'] * s['book'].get('price', 0)}")
+            else:
+                st.info("No sales yet.")
+        else:
+            st.warning("Could not load sales.")
+    except Exception as e:
+        st.error(f"Error fetching sales: {e}")
+
+#----------------- Streamlit Layout -----------------
 st.set_page_config(page_title="Book App", page_icon="📚", layout="centered")
 st.title("📚 Sajith Book Management")
 
@@ -136,42 +209,53 @@ else:
             st.subheader("🛠 Admin Dashboard")
             st.success("You have admin privileges!")
 
-            st.write("### All Users")
-            users_list = get_all_users(token)
-            for u in users_list:
-                st.write(f"{u['id']}: {u['username']} ({u['role']})")
+            # --- Tabs ---
+            tab_users, tab_pending_vendors = st.tabs(["👥 All Users", "⏳ Pending Vendor Requests"])
 
-            st.write("### Pending Vendor Requests")
-            pending_vendors = []
-            for u in users_list:
-                resp = requests.get(f"{API_BASE_URL}/users/vendor_profile/{u['id']}", headers=headers)
-                if resp.status_code == 200:
-                    vp = resp.json()
-                    if vp.get("verified") == "pending":
-                        pending_vendors.append({**u, **vp})
+            # --- All Users Tab ---
+            with tab_users:
+                st.info("List of all users and their roles.")
+                users_list = get_all_users(token)
+                if users_list:
+                    for u in users_list:
+                        with st.expander(f"{u['username']} (Role: {u['role']}) | ID: {u['id']}"):
+                            st.json(u)
+                else:
+                    st.info("No users found.")
 
-            if pending_vendors:
-                for vendor in pending_vendors:
-                    st.write(f"{vendor['username']} - {vendor.get('business_name', 'No business name')}")
-                    col1, col2 = st.columns(2)
+            # --- Pending Vendor Requests Tab ---
+            with tab_pending_vendors:
+                st.info("Approve or reject vendor registration requests.")
+                pending_vendors = []
+                for u in users_list:
+                    resp = requests.get(f"{API_BASE_URL}/users/vendor_profile/{u['id']}", headers=headers)
+                    if resp.status_code == 200:
+                        vp = resp.json()
+                        if vp.get("verified") == "pending":
+                            pending_vendors.append({**u, **vp})
 
-                    def handle_approve(v_id=vendor['id'], v_name=vendor['username']):
-                        if approve_vendor(token, v_id):
-                            st.toast(f"{v_name} approved!")
+                if pending_vendors:
+                    for vendor in pending_vendors:
+                        with st.expander(f"{vendor['username']} - {vendor.get('business_name', 'No business name')} | ID: {vendor['id']}"):
+                            st.json(vendor)
+                            col1, col2 = st.columns(2)
 
-                    def handle_reject(v_id=vendor['id'], v_name=vendor['username']):
-                        if reject_vendor(token, v_id):
-                            st.toast(f"{v_name} rejected!")
+                            def handle_approve(v_id=vendor['id'], v_name=vendor['username']):
+                                if approve_vendor(token, v_id):
+                                    st.toast(f"{v_name} approved!")
 
-                    col1.button(f"Approve {vendor['username']}", key=f"approve_{vendor['id']}", on_click=handle_approve)
-                    col2.button(f"Reject {vendor['username']}", key=f"reject_{vendor['id']}", on_click=handle_reject)
-            else:
-                st.info("No pending vendor requests.")
+                            def handle_reject(v_id=vendor['id'], v_name=vendor['username']):
+                                if reject_vendor(token, v_id):
+                                    st.toast(f"{v_name} rejected!")
+
+                            col1.button(f"Approve", key=f"approve_{vendor['id']}", on_click=handle_approve)
+                            col2.button(f"Reject", key=f"reject_{vendor['id']}", on_click=handle_reject)
+                else:
+                    st.info("No pending vendor requests.")
 
         # --- Vendor / User Section ---
         else:
             st.write("You are a normal user.")
-
             vendor_resp = requests.get(f"{API_BASE_URL}/users/vendor_profile/{user['id']}", headers=headers)
 
             if vendor_resp.status_code == 200:
@@ -181,11 +265,13 @@ else:
 
                 if verified_status == "pending":
                     st.info(f"🕒 Your vendor registration for '{business_name}' has been sent for admin approval.")
+
                 elif verified_status == "approved":
                     st.success(f"✅ Your vendor profile '{business_name}' is approved!")
+                    vendor_dashboard_page(token)
+
                 elif verified_status == "rejected":
                     st.error(f"❌ Your vendor registration for '{business_name}' was rejected by admin.")
-
                     st.subheader("🛒 Reapply as Vendor")
                     if "reapply_name" not in st.session_state:
                         st.session_state["reapply_name"] = business_name
@@ -219,5 +305,4 @@ else:
                         st.success(f"✅ '{business_name}' sent for approval to admin.")
                     else:
                         st.error(f"Failed: {response.json().get('detail', response.text)}")
-
                 st.button("Register as Vendor", on_click=handle_register_vendor)
